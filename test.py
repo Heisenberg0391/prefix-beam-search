@@ -1,3 +1,4 @@
+# coding=utf-8
 from glob import glob
 from string import ascii_lowercase
 from collections import defaultdict
@@ -59,9 +60,9 @@ def greedy_decoder(ctc):
 if __name__ == '__main__':
     lm = LanguageModel('language_model.p')
     for example_file in glob('examples/*.p'):
-        example = pickle.load(open(example_file, 'rb'))
+        example = pickle.load(open(example_file, 'rb'))  # ctc观测矩阵
         before_lm = greedy_decoder(example)
-        after_lm = prefix_beam_search(example, lm=lm)
+        after_lm = prefix_beam_search(example, lm=lm, k=5)
         print('\n{}'.format(example_file))
         print('\nBEFORE:\n{}'.format(before_lm))
         print('\nAFTER:\n{}'.format(after_lm))
