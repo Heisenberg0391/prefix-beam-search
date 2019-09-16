@@ -55,6 +55,9 @@ def prefix_beam_search(ctc, lm=None, k=5, alpha=0.30, beta=5, prune=0.001):
                     Pb[t][l] += ctc[t][-1] * (Pb[t - 1][l] + Pnb[t - 1][l])
                 # END: STEP 3
                 else:
+                    # extend非空白符时需要考虑前缀的结尾处，有两种情况
+                    # (1)--B这种以有效字符结尾的，如果新增不同字符还则罢了，如果新增相同字符则会导致解码时合并
+
                     # STEP 4: extend与前缀结尾相同的非空字符
                     l_plus = l + c
                     if len(l) > 0 and c == l[-1]:
@@ -64,14 +67,17 @@ def prefix_beam_search(ctc, lm=None, k=5, alpha=0.30, beta=5, prune=0.001):
                         # (2)解码时合并，要求前缀的路径以非空字符结尾
                         Pnb[t][l] += ctc[t][c_ix] * Pnb[t - 1][l]
                     # END: STEP 4
-
-                    # STEP 5: Extend任意非空字符并考虑语言模型
+                    # (2)-B-这种以空白符结尾的，无论新增什么字符解码时都不会合并
+                        # STEP 5: Extend与前缀结尾不同的非空字符，有两种情况
+                        # (1) extend分词结尾如空格或EOS，此时需要根据语言模型判断是否结束分词
                     elif len(l.replace(' ', '')) > 0 and c in (' ', '>'):
                         # 如果该前缀遇到分词，则求当前前缀的语言模型得分
                         lm_prob = lm(l_plus.strip(' >')) ** alpha
                         Pnb[t][l_plus] += lm_prob * ctc[t][c_ix] * (Pb[t - 1][l] + Pnb[t - 1][l])
+
                     else:
-                        # Extend任意非空字符，且还没分词则不需要考虑语言模型
+                        # (2) 与前缀结尾不同，不是分词的结尾，extend非空字符
+                        # -B-或--B，无论哪种，extend一个C都得到-B-C或--BC，因此概率相加
                         Pnb[t][l_plus] += ctc[t][c_ix] * (Pb[t - 1][l] + Pnb[t - 1][l])
                     # END: STEP 5
 
