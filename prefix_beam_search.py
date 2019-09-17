@@ -27,25 +27,18 @@ def prefix_beam_search(ctc, lm=None, k=5, alpha=0.30, beta=5, prune=0.001):
     ctc = np.vstack((np.zeros(F), ctc)) # just add an imaginative zero'th step (will make indexing more intuitive)
     T = ctc.shape[0]
 
-    # STEP 1: Initiliazation
-    O = ''
+    # STEP 1: 初始化
+    A_prev = ['']  # 从空前缀开始
     Pb, Pnb = defaultdict(Counter), defaultdict(Counter)
-    Pb[0][O] = 1
-    Pnb[0][O] = 0
-    A_prev = [O]
+    Pb[0][''] = 1
+    Pnb[0][''] = 0
     # END: STEP 1
 
     # STEP 2: Iterations and pruning
     for t in range(1, T):  # 遍历时刻
-        # 去除每一步概率过小的类别以加速计算
+        # 优化点1：去除每一步概率过小的类别以加速计算
         pruned_alphabet = [alphabet[i] for i in np.where(ctc[t] > prune)[0]]
-        for l in A_prev:  # 遍历前缀
-
-            if len(l) > 0 and l[-1] == '>':  # 如果某个前缀整句结束则跳过
-                Pb[t][l] = Pb[t - 1][l]
-                Pnb[t][l] = Pnb[t - 1][l]
-                continue
-
+        for l in A_prev:  # 遍历候选前缀
             for c in pruned_alphabet:
                 c_ix = alphabet.index(c)  # 剪枝后的字典
                 # END: STEP 2
@@ -55,9 +48,6 @@ def prefix_beam_search(ctc, lm=None, k=5, alpha=0.30, beta=5, prune=0.001):
                     Pb[t][l] += ctc[t][-1] * (Pb[t - 1][l] + Pnb[t - 1][l])
                 # END: STEP 3
                 else:
-                    # extend非空白符时需要考虑前缀的结尾处，有两种情况
-                    # (1)--B这种以有效字符结尾的，如果新增不同字符还则罢了，如果新增相同字符则会导致解码时合并
-
                     # STEP 4: extend与前缀结尾相同的非空字符
                     l_plus = l + c
                     if len(l) > 0 and c == l[-1]:
@@ -67,26 +57,21 @@ def prefix_beam_search(ctc, lm=None, k=5, alpha=0.30, beta=5, prune=0.001):
                         # (2)解码时合并，要求前缀的路径以非空字符结尾
                         Pnb[t][l] += ctc[t][c_ix] * Pnb[t - 1][l]
                     # END: STEP 4
-                    # (2)-B-这种以空白符结尾的，无论新增什么字符解码时都不会合并
-                        # STEP 5: Extend与前缀结尾不同的非空字符，有两种情况
-                        # (1) extend分词结尾如空格或EOS，此时需要根据语言模型判断是否结束分词
-                    elif len(l.replace(' ', '')) > 0 and c in (' ', '>'):
-                        # 如果该前缀遇到分词，则求当前前缀的语言模型得分
-                        lm_prob = lm(l_plus.strip(' >')) ** alpha
-                        Pnb[t][l_plus] += lm_prob * ctc[t][c_ix] * (Pb[t - 1][l] + Pnb[t - 1][l])
 
+                    # STEP 5: Extend与前缀结尾不同的非空字符
+                    # elif len(l.replace(' ', '')) > 0 and c in (' ', '>'):
+                    #     # 优化点2：如果该前缀遇到分词，则求该前缀的语言模型困惑度来修正得分
+                    #     lm_prob = lm(l_plus.strip(' >')) ** alpha
+                    #     Pnb[t][l_plus] += lm_prob * ctc[t][c_ix] * (Pb[t - 1][l] + Pnb[t - 1][l])
                     else:
-                        # (2) 与前缀结尾不同，不是分词的结尾，extend非空字符
-                        # -B-或--B，无论哪种，extend一个C都得到-B-C或--BC，因此概率相加
+                        # 不考虑语言模型(还没到分词的时候)
                         Pnb[t][l_plus] += ctc[t][c_ix] * (Pb[t - 1][l] + Pnb[t - 1][l])
                     # END: STEP 5
 
         # STEP 7: 筛选并保留前beam width个前缀
         A_next = Pb[t] + Pnb[t]
-        sorter = lambda l: A_next[l] * (len(W(l)) + 1) ** beta
-        A_prev = sorted(A_next, key=sorter, reverse=True)[:k]
-        if len(A_next)>1:
-            pass
+        sorter = lambda l: A_next[l] * (len(W(l)) + 1) ** beta  # 以前缀的概率为key做排序
+        A_prev = sorted(A_next, key=sorter, reverse=True)[:k]  # 保留概率最高的top k个前缀
         # END: STEP 7
 
     return A_prev[0].strip('>')
